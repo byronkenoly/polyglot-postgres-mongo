@@ -1,0 +1,18 @@
+spring:
+  application:
+    name: persistence
+  datasource:
+    url: jdbc:postgresql://localhost:5432/metro-staff
+    username: postgres
+    password: postgres
+  jpa:
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+    hibernate:
+      ddl-auto: update
+  data:
+    mongodb:
+      host: localhost
+      port: 27017
+      database: metro
