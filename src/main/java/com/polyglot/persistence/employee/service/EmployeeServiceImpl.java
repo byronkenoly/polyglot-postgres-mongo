@@ -2,6 +2,7 @@ package com.polyglot.persistence.employee.service;
 
 import com.polyglot.persistence.employee.data.CreateEmployeeData;
 import com.polyglot.persistence.employee.data.EmployeeResponseData;
+import com.polyglot.persistence.employee.data.PendingHRApprovalEmployeeData;
 import com.polyglot.persistence.employee.domain.Employee;
 import com.polyglot.persistence.employee.domain.EmployeeDataStaging;
 import com.polyglot.persistence.employee.domain.EmployeeDataStagingRepo;
@@ -12,9 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.lang.reflect.Field;
 import java.time.LocalDateTime;
-import java.util.List;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
@@ -61,6 +60,11 @@ public class EmployeeServiceImpl implements EmployeeService{
 
         Class<?> clazz = employee.getClass();
 
+        Optional<EmployeeDataStaging> existingPendingDoc = employeeDataStagingRepo.findByEmployeeIdAndApprovalStatus(id.toString(), "PENDING");
+        if (existingPendingDoc.isPresent()) {
+            throw new IllegalStateException("An existing edit request is pending approval. Please cancel it first to create another request.");
+        }
+
         for(Map.Entry<String, Object> entry : editedFields.entrySet()){
 
             String fieldName = entry.getKey();
@@ -73,7 +77,6 @@ public class EmployeeServiceImpl implements EmployeeService{
                 Object oldVal = field.get(employee);
 
                 if (val != null && !oldVal.equals(val)) {
-                    field.set(employee, val);
                     isChanged = true;
                 }
             } catch (NoSuchFieldException e){
@@ -95,6 +98,45 @@ public class EmployeeServiceImpl implements EmployeeService{
 
             employeeDataStagingRepo.save(empStaging);
         }
+    }
+
+    public List<PendingHRApprovalEmployeeData> getEmployeeEditsAwaitingHRApproval() {
+
+        List<EmployeeDataStaging> editsPendingApproval = employeeDataStagingRepo.findByApprovalStatus("PENDING");
+
+        List<PendingHRApprovalEmployeeData> pendingApprovalOldnNewVals = new ArrayList<>();
+
+        for (EmployeeDataStaging e : editsPendingApproval) {
+
+            UUID employeeId = UUID.fromString(e.getEmployeeId());
+
+            Employee employee = getEmployee(employeeId);
+
+            Map<String, Object> oldValues = new HashMap<>();
+            Map<String, Object> newValues = e.getEditedFields();
+
+            for (String fieldName : newValues.keySet()) {
+                try {
+                    Field field = Employee.class.getDeclaredField(fieldName);
+                    field.setAccessible(true);
+                    oldValues.put(fieldName, field.get(employee));
+                } catch (NoSuchFieldException | IllegalAccessException ex) {
+                    oldValues.put(fieldName, "UNKNOWN FIELD");
+                }
+            }
+
+            PendingHRApprovalEmployeeData data = new PendingHRApprovalEmployeeData(
+                    e.getEmployeeId(),
+                    oldValues,
+                    newValues,
+                    e.getApprovalStatus(),
+                    e.getTimestamp()
+            );
+
+            pendingApprovalOldnNewVals.add(data);
+        }
+
+        return pendingApprovalOldnNewVals;
     }
 
 
