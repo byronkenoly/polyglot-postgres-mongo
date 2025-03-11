@@ -61,9 +61,10 @@ public class EmployeeServiceImpl implements EmployeeService{
         Class<?> clazz = employee.getClass();
 
         Optional<EmployeeDataStaging> existingPendingDoc = employeeDataStagingRepo.findByEmployeeIdAndApprovalStatus(id.toString(), "PENDING");
-        if (existingPendingDoc.isPresent()) {
-            throw new IllegalStateException("An existing edit request is pending approval. Please cancel it first to create another request.");
-        }
+
+        Map<String, Object> mongoEditedFields = existingPendingDoc
+                .map(EmployeeDataStaging::getEditedFields)
+                .orElse(new HashMap<>());
 
         for(Map.Entry<String, Object> entry : editedFields.entrySet()){
 
@@ -74,11 +75,20 @@ public class EmployeeServiceImpl implements EmployeeService{
                 Field field = clazz.getDeclaredField(fieldName);
                 field.setAccessible(true);
 
-                Object oldVal = field.get(employee);
+                Object postgresVal = field.get(employee);
+                Object mongoVal = mongoEditedFields.get(fieldName);
 
-                if (val != null && !oldVal.equals(val)) {
+                if (!mongoEditedFields.containsKey(fieldName)) {
+                    mongoEditedFields.put(fieldName, val);
+                    isChanged = true;
+                } else if (Objects.equals(postgresVal, val)) {
+                    mongoEditedFields.remove(fieldName);
+                    isChanged = true;
+                } else if (!Objects.equals(val, postgresVal) && !Objects.equals(val, mongoVal)) {
+                    mongoEditedFields.put(fieldName, val);
                     isChanged = true;
                 }
+
             } catch (NoSuchFieldException e){
                 throw new IllegalArgumentException("Field not found: " + fieldName, e);
             } catch (IllegalAccessException e) {
@@ -88,13 +98,21 @@ public class EmployeeServiceImpl implements EmployeeService{
         }
 
         if (isChanged) {
-            EmployeeDataStaging empStaging = EmployeeDataStaging.builder()
-                    .id(UUID.randomUUID())
-                    .employeeId(id.toString())
-                    .editedFields(editedFields)
-                    .approvalStatus("PENDING")
-                    .timestamp(LocalDateTime.now())
-                    .build();
+            EmployeeDataStaging empStaging = existingPendingDoc.orElse(
+                    EmployeeDataStaging.builder()
+                            .id(UUID.randomUUID())
+                            .employeeId(id.toString())
+                            .editedFields(new HashMap<>())
+                            .approvalStatus("PENDING")
+                            .timestamp(LocalDateTime.now())
+                            .build()
+            );
+
+            empStaging.setEditedFields(mongoEditedFields);
+
+            if (mongoEditedFields.isEmpty()) {
+                empStaging.setApprovalStatus("CANCELLED");
+            }
 
             employeeDataStagingRepo.save(empStaging);
         }

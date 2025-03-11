@@ -1,5 +1,8 @@
 package com.polyglot.persistence.employee.api;
 
+import com.polyglot.persistence.children.data.ChildData;
+import com.polyglot.persistence.children.data.ChildHRApprovalData;
+import com.polyglot.persistence.children.service.ChildService;
 import com.polyglot.persistence.employee.data.CreateEmployeeData;
 import com.polyglot.persistence.employee.data.EmployeeResponseData;
 import com.polyglot.persistence.employee.data.PendingHRApprovalEmployeeData;
@@ -18,6 +21,8 @@ import java.util.UUID;
 public class EmployeeController {
 
     private final EmployeeService employeeService;
+
+    private final ChildService childService;
 
     @PostMapping
     public ResponseEntity<?> createEmployee(
@@ -50,5 +55,57 @@ public class EmployeeController {
         List<PendingHRApprovalEmployeeData> pendingEdits = employeeService.getEmployeeEditsAwaitingHRApproval();
 
         return ResponseEntity.ok(pendingEdits);
+    }
+
+    @PostMapping("/{id}/staged-children")
+    public ResponseEntity<?> createChildren(
+            @PathVariable("id") UUID id,
+            @RequestBody List<ChildData> data
+    ){
+
+        childService.createChildren(id, data);
+
+        return ResponseEntity.ok("added child(ren) to staging area successfully.");
+
+    }
+
+    @GetMapping("/{id}/staged-children")
+    public ResponseEntity<?> getChildrenForSingleEmployee(
+            @PathVariable("id") UUID id
+    ){
+
+        List<ChildHRApprovalData> pendingChildren = childService.getPendingChildrenForEmployee(id);
+
+        if (pendingChildren.isEmpty()) {
+            return ResponseEntity.noContent().build();
+        }
+
+        return ResponseEntity.ok(pendingChildren);
+
+    }
+
+    @PatchMapping("/{id}/staged-children/{documentId}")
+    public ResponseEntity<?> updateChildReqAwaitingHRApproval(
+            @PathVariable("documentId") UUID documentId,
+            @PathVariable("id") UUID employeeId,
+            @RequestBody Map<String, Object> editedFields
+    ){
+
+        childService.editStagedChild(documentId, employeeId, editedFields);
+
+        return ResponseEntity.ok("updated child in staging area successfully");
+
+    }
+
+    @DeleteMapping("/{id}/staged-children/{childId}")
+    public ResponseEntity<?> deleteChild(
+            @PathVariable("id") UUID id,
+            @PathVariable("childId") UUID childId
+    ){
+
+        childService.stageChildForDeletion(childId, id);
+
+        return ResponseEntity.ok("delete child request added to staging area");
+
     }
 }
